@@ -1,0 +1,1904 @@
+openapi: 3.0.3
+info:
+  title: BFS Phase 1 API
+  version: 1.0.0
+  description: |-
+    Backend for the Bright Financial Solution website enquiry form and admin Lead Management System.
+
+    **Auth:** call `GET /api/auth/csrf/`, then send `X-CSRFToken` on every POST, PATCH and DELETE. Admin endpoints use the session cookie set by `POST /api/auth/login/`.
+
+    **Import policy**
+    1. Required columns: `customer_name`, `mobile`, `service`. Header matching is case-insensitive and trims spaces.
+    2. A row is *invalid* if a required value is missing, the mobile fails validation, the service is unknown, or a date cannot be parsed.
+    3. A row is a *duplicate* if its mobile already exists in the database or appeared earlier in the same file.
+    4. On confirm only valid rows are imported. Invalid and duplicate rows are skipped, never partly imported and never overwrite existing leads.
+    5. Imported leads get source=existing_db, status=new, created_by = the admin, import_batch = the batch.
+    6. Previews older than 24 hours are cancelled by the `cleanup_import_previews` command.
+paths:
+  /api/admin/dashboard/:
+    get:
+      operationId: admin_dashboard_retrieve
+      parameters:
+      - in: query
+        name: date_from
+        schema:
+          type: string
+        description: created_at from (YYYY-MM-DD, IST)
+      - in: query
+        name: date_to
+        schema:
+          type: string
+        description: created_at to (YYYY-MM-DD, IST)
+      - in: query
+        name: employee_id
+        schema:
+          type: string
+        description: Employee id, or 'unassigned'
+      - in: query
+        name: source
+        schema:
+          type: string
+      - in: query
+        name: status
+        schema:
+          type: string
+      tags:
+      - admin
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dashboard'
+          description: ''
+  /api/admin/documents/{document_id}/:
+    delete:
+      operationId: admin_documents_destroy
+      description: Moves the document to the bin. The file stays in storage.
+      parameters:
+      - in: path
+        name: document_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - admin
+      security:
+      - sessionAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/admin/documents/{document_id}/download/:
+    get:
+      operationId: admin_documents_download_retrieve
+      description: Streams the file. Binned documents and documents of deleted leads
+        return 404.
+      parameters:
+      - in: path
+        name: document_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: query
+        name: inline
+        schema:
+          type: string
+        description: 1 = open in the browser instead of downloading
+      tags:
+      - admin
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+          description: ''
+  /api/admin/documents/{document_id}/purge/:
+    delete:
+      operationId: admin_documents_purge_destroy
+      description: Permanently deletes the record and the file. Only for documents
+        in the bin.
+      parameters:
+      - in: path
+        name: document_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - admin
+      security:
+      - sessionAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/admin/documents/{document_id}/restore/:
+    post:
+      operationId: admin_documents_restore_create
+      parameters:
+      - in: path
+        name: document_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - admin
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+          description: ''
+  /api/admin/documents/bin/:
+    get:
+      operationId: admin_documents_bin_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - admin
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedBinnedDocumentList'
+          description: ''
+  /api/admin/employees/:
+    get:
+      operationId: admin_employees_list
+      parameters:
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+        description: true or false
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Name, Employee ID, mobile or email
+      tags:
+      - admin
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedEmployeeList'
+          description: ''
+    post:
+      operationId: admin_employees_create
+      parameters:
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+        description: true or false
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Name, Employee ID, mobile or email
+      tags:
+      - admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmployeeRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/EmployeeRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/EmployeeRequest'
+        required: true
+      security:
+      - sessionAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Employee'
+          description: ''
+  /api/admin/employees/{id}/:
+    get:
+      operationId: admin_employees_retrieve
+      description: 'No delete: deactivate instead (is_active=false) so history stays
+        intact.'
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - admin
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Employee'
+          description: ''
+    patch:
+      operationId: admin_employees_partial_update
+      description: 'No delete: deactivate instead (is_active=false) so history stays
+        intact.'
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedEmployeeRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedEmployeeRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedEmployeeRequest'
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Employee'
+          description: ''
+  /api/admin/leads/:
+    get:
+      operationId: admin_leads_list
+      parameters:
+      - in: query
+        name: date_from
+        schema:
+          type: string
+        description: created_at from (YYYY-MM-DD, IST, inclusive)
+      - in: query
+        name: date_to
+        schema:
+          type: string
+        description: created_at to (YYYY-MM-DD, IST, inclusive)
+      - in: query
+        name: employee_id
+        schema:
+          type: string
+        description: Employee id, or 'unassigned'
+      - in: query
+        name: followup_due
+        schema:
+          type: string
+        description: true = next_followup_date <= today and not converted/closed
+      - in: query
+        name: ordering
+        schema:
+          type: string
+        description: created_at, next_followup_date, customer_name, status; prefix
+          - for desc
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Name (contains), mobile (contains) or lead code
+      - in: query
+        name: service_id
+        schema:
+          type: string
+        description: Comma-separated service ids
+      - in: query
+        name: source
+        schema:
+          type: string
+        description: Comma-separated source codes
+      - in: query
+        name: status
+        schema:
+          type: string
+        description: Comma-separated status codes
+      tags:
+      - admin
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedLeadListList'
+          description: ''
+    post:
+      operationId: admin_leads_create
+      parameters:
+      - in: query
+        name: date_from
+        schema:
+          type: string
+        description: created_at from (YYYY-MM-DD, IST, inclusive)
+      - in: query
+        name: date_to
+        schema:
+          type: string
+        description: created_at to (YYYY-MM-DD, IST, inclusive)
+      - in: query
+        name: employee_id
+        schema:
+          type: string
+        description: Employee id, or 'unassigned'
+      - in: query
+        name: followup_due
+        schema:
+          type: string
+        description: true = next_followup_date <= today and not converted/closed
+      - in: query
+        name: ordering
+        schema:
+          type: string
+        description: created_at, next_followup_date, customer_name, status; prefix
+          - for desc
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Name (contains), mobile (contains) or lead code
+      - in: query
+        name: service_id
+        schema:
+          type: string
+        description: Comma-separated service ids
+      - in: query
+        name: source
+        schema:
+          type: string
+        description: Comma-separated source codes
+      - in: query
+        name: status
+        schema:
+          type: string
+        description: Comma-separated status codes
+      tags:
+      - admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminLeadCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AdminLeadCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AdminLeadCreateRequest'
+        required: true
+      security:
+      - sessionAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeadDetail'
+          description: ''
+  /api/admin/leads/{id}/:
+    get:
+      operationId: admin_leads_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - admin
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeadDetail'
+          description: ''
+    patch:
+      operationId: admin_leads_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedLeadUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedLeadUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedLeadUpdateRequest'
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeadDetail'
+          description: ''
+    delete:
+      operationId: admin_leads_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - admin
+      security:
+      - sessionAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/admin/leads/{id}/assign/:
+    post:
+      operationId: admin_leads_assign_create
+      description: Assign, transfer, or (employee_id=null) unassign a lead.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AssignRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AssignRequest'
+        required: true
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeadDetail'
+          description: ''
+  /api/admin/leads/{id}/assignments/:
+    get:
+      operationId: admin_leads_assignments_list
+      description: Assignment history for a lead, newest first.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - admin
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedLeadAssignmentList'
+          description: ''
+  /api/admin/leads/{id}/documents/:
+    get:
+      operationId: admin_leads_documents_list
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - admin
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedDocumentList'
+          description: ''
+    post:
+      operationId: admin_leads_documents_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - admin
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DocumentUploadRequest'
+        required: true
+      security:
+      - sessionAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+          description: ''
+  /api/admin/leads/{id}/remarks/:
+    get:
+      operationId: admin_leads_remarks_list
+      description: Append-only internal notes, newest first.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - admin
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedRemarkList'
+          description: ''
+    post:
+      operationId: admin_leads_remarks_create
+      description: Append-only internal notes, newest first.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RemarkRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RemarkRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RemarkRequest'
+        required: true
+      security:
+      - sessionAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Remark'
+          description: ''
+  /api/admin/leads/export/:
+    get:
+      operationId: admin_leads_export_retrieve
+      description: CSV of the filtered lead list (same filters as the list, no pagination).
+      parameters:
+      - in: query
+        name: date_from
+        schema:
+          type: string
+        description: created_at from (YYYY-MM-DD, IST, inclusive)
+      - in: query
+        name: date_to
+        schema:
+          type: string
+        description: created_at to (YYYY-MM-DD, IST, inclusive)
+      - in: query
+        name: employee_id
+        schema:
+          type: string
+        description: Employee id, or 'unassigned'
+      - in: query
+        name: followup_due
+        schema:
+          type: string
+        description: true = next_followup_date <= today and not converted/closed
+      - in: query
+        name: ordering
+        schema:
+          type: string
+        description: created_at, next_followup_date, customer_name, status; prefix
+          - for desc
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Name (contains), mobile (contains) or lead code
+      - in: query
+        name: service_id
+        schema:
+          type: string
+        description: Comma-separated service ids
+      - in: query
+        name: source
+        schema:
+          type: string
+        description: Comma-separated source codes
+      - in: query
+        name: status
+        schema:
+          type: string
+        description: Comma-separated status codes
+      tags:
+      - admin
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+          description: ''
+  /api/admin/leads/import/:
+    post:
+      operationId: admin_leads_import_create
+      description: |-
+        Upload a .csv/.xlsx (max 5 MB). Parses and validates only; nothing is imported yet.
+
+        See the import policy in the API description.
+      tags:
+      - admin
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ImportUploadRequest'
+        required: true
+      security:
+      - sessionAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/admin/leads/import/{batch_id}/:
+    get:
+      operationId: admin_leads_import_retrieve
+      parameters:
+      - in: path
+        name: batch_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: query
+        name: result
+        schema:
+          type: string
+        description: valid, invalid, duplicate, imported
+      tags:
+      - admin
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/admin/leads/import/{batch_id}/cancel/:
+    post:
+      operationId: admin_leads_import_cancel_create
+      parameters:
+      - in: path
+        name: batch_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - admin
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/admin/leads/import/{batch_id}/confirm/:
+    post:
+      operationId: admin_leads_import_confirm_create
+      description: Imports the valid rows in one transaction. 409 if the batch is
+        not in preview.
+      parameters:
+      - in: path
+        name: batch_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - admin
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/admin/leads/import/{batch_id}/report/:
+    get:
+      operationId: admin_leads_import_report_retrieve
+      description: 'CSV of every invalid or skipped (duplicate) row: original columns
+        + row_number, result, errors.'
+      parameters:
+      - in: path
+        name: batch_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - admin
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+          description: ''
+  /api/admin/leads/import/template/:
+    get:
+      operationId: admin_leads_import_template_retrieve
+      description: Header row plus two sample rows. `service` accepts the category
+        name or slug.
+      parameters:
+      - in: query
+        name: format
+        schema:
+          type: string
+          enum:
+          - csv
+          - xlsx
+      tags:
+      - admin
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+          description: ''
+  /api/auth/csrf/:
+    get:
+      operationId: auth_csrf_retrieve
+      description: Sets the CSRF cookie and returns the token to send as X-CSRFToken.
+      tags:
+      - auth
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CsrfResponse'
+          description: ''
+  /api/auth/login/:
+    post:
+      operationId: auth_login_create
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUser'
+          description: ''
+  /api/auth/logout/:
+    post:
+      operationId: auth_logout_create
+      tags:
+      - auth
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/auth/me/:
+    get:
+      operationId: auth_me_retrieve
+      tags:
+      - auth
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUser'
+          description: ''
+  /api/public/enquiries/:
+    post:
+      operationId: public_enquiries_create
+      description: Website enquiry form. Throttled to 5 per IP per hour.
+      tags:
+      - public
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnquiryRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/EnquiryRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/EnquiryRequest'
+        required: true
+      security:
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnquiryResponse'
+          description: ''
+  /api/services/:
+    get:
+      operationId: services_list
+      description: Active service categories, sorted by display_order. Not paginated.
+      parameters:
+      - in: query
+        name: group
+        schema:
+          type: string
+          enum:
+          - insurance
+          - loan
+      tags:
+      - services
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PublicService'
+          description: ''
+components:
+  schemas:
+    AdminLeadCreateRequest:
+      type: object
+      properties:
+        customer_name:
+          type: string
+          minLength: 1
+          maxLength: 150
+        mobile:
+          type: string
+          minLength: 1
+          maxLength: 20
+        location:
+          type: string
+          nullable: true
+          maxLength: 120
+        service_id:
+          type: integer
+        loan_amount:
+          type: string
+          nullable: true
+          maxLength: 50
+        occupation:
+          type: string
+          nullable: true
+          maxLength: 120
+        message:
+          type: string
+          nullable: true
+          maxLength: 2000
+        consent:
+          type: boolean
+          default: false
+        source:
+          $ref: '#/components/schemas/SourceEnum'
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusEnum'
+          default: new
+        assigned_employee_id:
+          type: integer
+          nullable: true
+        next_followup_date:
+          type: string
+          format: date
+          nullable: true
+        allow_duplicate:
+          type: boolean
+          default: false
+      required:
+      - customer_name
+      - mobile
+      - service_id
+      - source
+    AssignRequest:
+      type: object
+      properties:
+        employee_id:
+          type: integer
+          nullable: true
+          description: null unassigns the lead.
+        note:
+          type: string
+          nullable: true
+          maxLength: 300
+      required:
+      - employee_id
+    BinnedDocument:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        original_filename:
+          type: string
+          description: Display only; never used as a path.
+          maxLength: 255
+        category:
+          allOf:
+          - $ref: '#/components/schemas/CategoryEnum'
+          readOnly: true
+        file_size:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Bytes
+        mime_type:
+          type: string
+          description: Sniffed from the file content.
+          maxLength: 100
+        uploaded_by:
+          type: object
+          additionalProperties: {}
+          nullable: true
+          readOnly: true
+        uploaded_at:
+          type: string
+          format: date-time
+        lead:
+          type: object
+          additionalProperties: {}
+          readOnly: true
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+        deleted_by:
+          type: object
+          additionalProperties: {}
+          nullable: true
+          readOnly: true
+      required:
+      - category
+      - deleted_by
+      - file_size
+      - id
+      - lead
+      - mime_type
+      - original_filename
+      - uploaded_by
+    CategoryEnum:
+      enum:
+      - kyc
+      - income
+      - loan
+      - other
+      type: string
+      description: |-
+        * `kyc` - Identity / KYC
+        * `income` - Income / Financial
+        * `loan` - Loan-related
+        * `other` - Other
+    CsrfResponse:
+      type: object
+      properties:
+        csrf_token:
+          type: string
+      required:
+      - csrf_token
+    CurrentUser:
+      type: object
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        full_name:
+          type: string
+          readOnly: true
+      required:
+      - email
+      - full_name
+      - id
+      - username
+    Dashboard:
+      type: object
+      properties:
+        summary:
+          type: object
+          additionalProperties: {}
+      required:
+      - summary
+    Document:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        original_filename:
+          type: string
+          description: Display only; never used as a path.
+          maxLength: 255
+        category:
+          allOf:
+          - $ref: '#/components/schemas/CategoryEnum'
+          readOnly: true
+        file_size:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Bytes
+        mime_type:
+          type: string
+          description: Sniffed from the file content.
+          maxLength: 100
+        uploaded_by:
+          type: object
+          additionalProperties: {}
+          nullable: true
+          readOnly: true
+        uploaded_at:
+          type: string
+          format: date-time
+      required:
+      - category
+      - file_size
+      - id
+      - mime_type
+      - original_filename
+      - uploaded_by
+    DocumentUploadRequest:
+      type: object
+      properties:
+        file:
+          type: string
+          format: binary
+        category:
+          $ref: '#/components/schemas/CategoryEnum'
+      required:
+      - category
+      - file
+    Employee:
+      type: object
+      description: Expects the annotated queryset from employees.views.employee_queryset().
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        employee_code:
+          type: string
+          maxLength: 20
+        name:
+          type: string
+          maxLength: 120
+        mobile:
+          type: string
+          maxLength: 20
+        email:
+          oneOf:
+          - type: string
+            format: email
+          - type: string
+            maxLength: 0
+        is_active:
+          type: boolean
+          description: Inactive staff cannot receive new leads.
+        lead_counts:
+          type: object
+          additionalProperties: {}
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - employee_code
+      - id
+      - lead_counts
+      - name
+      - updated_at
+    EmployeeRequest:
+      type: object
+      description: Expects the annotated queryset from employees.views.employee_queryset().
+      properties:
+        employee_code:
+          type: string
+          minLength: 1
+          maxLength: 20
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        mobile:
+          type: string
+          maxLength: 20
+        email:
+          oneOf:
+          - type: string
+            format: email
+          - type: string
+            maxLength: 0
+        is_active:
+          type: boolean
+          description: Inactive staff cannot receive new leads.
+      required:
+      - employee_code
+      - name
+    EnquiryRequest:
+      type: object
+      description: Public website form. Source/status sent by the client are ignored.
+      properties:
+        customer_name:
+          type: string
+          minLength: 1
+          maxLength: 150
+        mobile:
+          type: string
+          minLength: 1
+          maxLength: 20
+        location:
+          type: string
+          nullable: true
+          maxLength: 120
+        service_id:
+          type: integer
+        loan_amount:
+          type: string
+          nullable: true
+          maxLength: 50
+        occupation:
+          type: string
+          nullable: true
+          maxLength: 120
+        message:
+          type: string
+          nullable: true
+          maxLength: 2000
+        consent:
+          type: boolean
+        website:
+          type: string
+          nullable: true
+          description: Honeypot. Must be empty.
+          maxLength: 200
+      required:
+      - consent
+      - customer_name
+      - mobile
+      - service_id
+    EnquiryResponse:
+      type: object
+      properties:
+        reference:
+          type: string
+      required:
+      - reference
+    GroupEnum:
+      enum:
+      - loan
+      - insurance
+      type: string
+      description: |-
+        * `loan` - Loan
+        * `insurance` - Insurance
+    ImportUploadRequest:
+      type: object
+      properties:
+        file:
+          type: string
+          format: binary
+      required:
+      - file
+    LeadAssignment:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        previous_employee:
+          type: object
+          additionalProperties: {}
+          nullable: true
+          readOnly: true
+        new_employee:
+          type: object
+          additionalProperties: {}
+          nullable: true
+          readOnly: true
+        assigned_by:
+          type: object
+          additionalProperties: {}
+          nullable: true
+          readOnly: true
+        assigned_at:
+          type: string
+          format: date-time
+        note:
+          type: string
+          maxLength: 300
+      required:
+      - assigned_by
+      - id
+      - new_employee
+      - previous_employee
+    LeadDetail:
+      type: object
+      description: Expects the queryset from leads.views.lead_detail_queryset() (annotated
+        counts).
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        lead_code:
+          type: string
+          readOnly: true
+          nullable: true
+        customer_name:
+          type: string
+          maxLength: 150
+        mobile:
+          type: string
+          maxLength: 10
+        service:
+          type: object
+          additionalProperties: {}
+          readOnly: true
+        location:
+          type: string
+          maxLength: 120
+        source:
+          allOf:
+          - $ref: '#/components/schemas/SourceEnum'
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusEnum'
+          readOnly: true
+        assigned_employee:
+          type: object
+          additionalProperties: {}
+          nullable: true
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        next_followup_date:
+          type: string
+          format: date
+          nullable: true
+        loan_amount:
+          type: string
+          maxLength: 50
+        occupation:
+          type: string
+          maxLength: 120
+        message:
+          type: string
+          maxLength: 2000
+        consent:
+          type: boolean
+        consent_at:
+          type: string
+          format: date-time
+          nullable: true
+        assigned_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_followup_date:
+          type: string
+          format: date
+          nullable: true
+        created_by:
+          type: object
+          additionalProperties: {}
+          nullable: true
+          readOnly: true
+        import_batch_id:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        document_count:
+          type: integer
+          readOnly: true
+        remark_count:
+          type: integer
+          readOnly: true
+        possible_duplicate:
+          type: boolean
+          readOnly: true
+      required:
+      - assigned_employee
+      - created_at
+      - created_by
+      - customer_name
+      - document_count
+      - id
+      - import_batch_id
+      - lead_code
+      - mobile
+      - possible_duplicate
+      - remark_count
+      - service
+      - source
+      - status
+      - updated_at
+    LeadList:
+      type: object
+      description: List-row shape, also used by the dashboard lists.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        lead_code:
+          type: string
+          readOnly: true
+          nullable: true
+        customer_name:
+          type: string
+          maxLength: 150
+        mobile:
+          type: string
+          maxLength: 10
+        service:
+          type: object
+          additionalProperties: {}
+          readOnly: true
+        location:
+          type: string
+          maxLength: 120
+        source:
+          allOf:
+          - $ref: '#/components/schemas/SourceEnum'
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusEnum'
+          readOnly: true
+        assigned_employee:
+          type: object
+          additionalProperties: {}
+          nullable: true
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        next_followup_date:
+          type: string
+          format: date
+          nullable: true
+      required:
+      - assigned_employee
+      - created_at
+      - customer_name
+      - id
+      - lead_code
+      - mobile
+      - service
+      - source
+      - status
+    LoginRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          minLength: 1
+          description: Username or email address.
+          maxLength: 254
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+          maxLength: 128
+      required:
+      - password
+      - username
+    PaginatedBinnedDocumentList:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/BinnedDocument'
+        pagination:
+          type: object
+          properties:
+            page:
+              type: integer
+              example: 1
+            page_size:
+              type: integer
+              example: 20
+            total:
+              type: integer
+              example: 143
+            total_pages:
+              type: integer
+              example: 8
+    PaginatedDocumentList:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Document'
+        pagination:
+          type: object
+          properties:
+            page:
+              type: integer
+              example: 1
+            page_size:
+              type: integer
+              example: 20
+            total:
+              type: integer
+              example: 143
+            total_pages:
+              type: integer
+              example: 8
+    PaginatedEmployeeList:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Employee'
+        pagination:
+          type: object
+          properties:
+            page:
+              type: integer
+              example: 1
+            page_size:
+              type: integer
+              example: 20
+            total:
+              type: integer
+              example: 143
+            total_pages:
+              type: integer
+              example: 8
+    PaginatedLeadAssignmentList:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeadAssignment'
+        pagination:
+          type: object
+          properties:
+            page:
+              type: integer
+              example: 1
+            page_size:
+              type: integer
+              example: 20
+            total:
+              type: integer
+              example: 143
+            total_pages:
+              type: integer
+              example: 8
+    PaginatedLeadListList:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeadList'
+        pagination:
+          type: object
+          properties:
+            page:
+              type: integer
+              example: 1
+            page_size:
+              type: integer
+              example: 20
+            total:
+              type: integer
+              example: 143
+            total_pages:
+              type: integer
+              example: 8
+    PaginatedRemarkList:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Remark'
+        pagination:
+          type: object
+          properties:
+            page:
+              type: integer
+              example: 1
+            page_size:
+              type: integer
+              example: 20
+            total:
+              type: integer
+              example: 143
+            total_pages:
+              type: integer
+              example: 8
+    PatchedEmployeeRequest:
+      type: object
+      description: Expects the annotated queryset from employees.views.employee_queryset().
+      properties:
+        employee_code:
+          type: string
+          minLength: 1
+          maxLength: 20
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        mobile:
+          type: string
+          maxLength: 20
+        email:
+          oneOf:
+          - type: string
+            format: email
+          - type: string
+            maxLength: 0
+        is_active:
+          type: boolean
+          description: Inactive staff cannot receive new leads.
+    PatchedLeadUpdateRequest:
+      type: object
+      description: 'PATCH: every field optional. Assignment is changed only via /assign/.'
+      properties:
+        customer_name:
+          type: string
+          minLength: 1
+          maxLength: 150
+        mobile:
+          type: string
+          minLength: 1
+          maxLength: 20
+        location:
+          type: string
+          nullable: true
+          maxLength: 120
+        service_id:
+          type: integer
+        loan_amount:
+          type: string
+          nullable: true
+          maxLength: 50
+        occupation:
+          type: string
+          nullable: true
+          maxLength: 120
+        message:
+          type: string
+          nullable: true
+          maxLength: 2000
+        source:
+          $ref: '#/components/schemas/SourceEnum'
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+        next_followup_date:
+          type: string
+          format: date
+          nullable: true
+        last_followup_date:
+          type: string
+          format: date
+          nullable: true
+    PublicService:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          maxLength: 100
+        slug:
+          type: string
+          description: Used in URLs and import files.
+          maxLength: 100
+          pattern: ^[-a-zA-Z0-9_]+$
+        group:
+          $ref: '#/components/schemas/GroupEnum'
+        short_description:
+          type: string
+          maxLength: 300
+        display_order:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+      required:
+      - group
+      - id
+      - name
+      - slug
+    Remark:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        text:
+          type: string
+          maxLength: 2000
+        created_by:
+          type: object
+          additionalProperties: {}
+          nullable: true
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - created_by
+      - id
+      - text
+    RemarkRequest:
+      type: object
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 2000
+      required:
+      - text
+    SourceEnum:
+      enum:
+      - website
+      - phone
+      - whatsapp
+      - walk_in
+      - referral
+      - social_media
+      - campaign
+      - existing_db
+      - other
+      type: string
+      description: |-
+        * `website` - Website
+        * `phone` - Phone Call
+        * `whatsapp` - WhatsApp
+        * `walk_in` - Walk-in
+        * `referral` - Referral
+        * `social_media` - Social Media
+        * `campaign` - Campaign
+        * `existing_db` - Existing Database / Import
+        * `other` - Other
+    StatusEnum:
+      enum:
+      - new
+      - contacted
+      - interested
+      - follow_up
+      - converted
+      - closed
+      type: string
+      description: |-
+        * `new` - New
+        * `contacted` - Contacted
+        * `interested` - Interested
+        * `follow_up` - Follow-up
+        * `converted` - Converted
+        * `closed` - Closed / Not Interested
+  securitySchemes:
+    sessionAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid

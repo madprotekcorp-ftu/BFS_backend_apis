@@ -1,0 +1,12 @@
+Django==5.2.19
+djangorestframework==3.18.3
+django-cors-headers==4.9.0
+django-environ==0.14.0
+drf-spectacular==0.30.0
+openpyxl==3.1.5
+psycopg[binary]==3.3.9
+# libmagic for MIME sniffing: the -bin package bundles the DLL on Windows,
+# Linux servers use python-magic + the system libmagic1 package.
+python-magic-bin==0.4.14; sys_platform == "win32"
+python-magic==0.4.27; sys_platform != "win32"
+gunicorn==23.0.0; sys_platform != "win32"
