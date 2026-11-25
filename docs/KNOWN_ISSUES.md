@@ -4,9 +4,9 @@
 
 1. **Hosting and domain** are still open. CORS origins, the cookie domain and HTTPS can only be
    finalised once they are known.
-2. **Service category list.** The 15 seeded categories (10 loans, 5 insurance) are a best guess.
-   Check names, slugs and descriptions against the SRS before go-live. They can be edited in the
-   Django admin or with a follow-up migration.
+2. **Service category names and descriptions.** The 15 slugs are the ones agreed with the
+   frontend. The display names and `short_description` texts were written by the backend and
+   should be checked by BFS. They can be edited in the Django admin without a code change.
 3. **KYC and financial document storage** is built, but BFS has to confirm before go-live (as
    agreed in the spec).
 
@@ -18,11 +18,13 @@ These are small additions to, or interpretations of, the spec. Each needs agreem
   token on login, so the frontend must use this new token afterwards.
 - **`GET /api/auth/csrf/`** returns the token in the body (`data.csrf_token`) as well as setting
   the cookie, so the frontend never has to read a cross-subdomain cookie.
-- **`409 duplicate_mobile`** includes `error.existing_lead_id` and `error.existing_lead_code`.
-- **Import `400` for missing columns** returns `error.missing_columns` (and `error.fields.file`).
-- **Import preview and batch detail** return `data` as an object (`batch_id`, `status`, `summary`,
-  `rows`, …), with the pagination for `rows` in the top-level `pagination` key. The `summary`
-  also includes `successful_rows` and `failed_rows`.
+- **`409 duplicate_mobile`** includes `error.existing_lead_id` (per the spec) and, additionally,
+  `error.existing_lead_code`.
+- **Import `400` for missing columns** returns `error.code = "missing_columns"` and
+  `error.missing_columns` (per the spec), plus `error.fields.file` with a readable message.
+- **Import preview and batch detail** return the batch object with `rows` (one page) and
+  `rows_pagination` inside `data` (per the spec), plus `created_at` and `imported_at`.
+  `summary` has `successful_rows` and `failed_rows` only after confirm.
 - **Unassign history:** `POST /assign/` with `employee_id: null` writes a history row with
   `new_employee: null`. The spec marks `new_employee` as required; it is nullable so unassignments
   stay in the history.

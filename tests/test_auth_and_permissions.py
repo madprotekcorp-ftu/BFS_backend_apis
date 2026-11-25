@@ -154,5 +154,24 @@ def test_public_services_lists_active_only_in_order(api_client):
     assert api_client.get("/api/services/?group=car").status_code == 400
 
 
+def test_seeded_services_match_the_agreed_slugs(api_client):
+    data = api_client.get("/api/services/").json()["data"]
+    assert [(s["slug"], s["group"], s["display_order"]) for s in data] == [
+        (slug, group, order)
+        for order, (slug, group) in enumerate(
+            [
+                ("personal-loan", "loan"), ("business-loan", "loan"), ("home-loan", "loan"),
+                ("plot-loan", "loan"), ("car-loan", "loan"), ("commercial-vehicle-loan", "loan"),
+                ("education-loan", "loan"), ("gold-loan", "loan"), ("msme-loan", "loan"),
+                ("top-up-loan", "loan"), ("life-insurance", "insurance"), ("health-insurance", "insurance"),
+                ("vehicle-insurance", "insurance"), ("home-insurance", "insurance"),
+                ("personal-accident-insurance", "insurance"),
+            ],
+            start=1,
+        )
+    ]
+    assert [s["id"] for s in data] == list(range(1, 16))
+
+
 def test_schema_is_generated(api_client):
     assert api_client.get("/api/schema/").status_code == 200

@@ -72,6 +72,9 @@ def test_csv_import_preview_confirm_and_report(admin_client, admin_user, make_le
     assert data["summary"]["valid_rows"] == 2
     assert data["summary"]["invalid_rows"] == 4
     assert data["summary"]["duplicate_rows"] == 2
+    assert "successful_rows" not in data["summary"]  # only after confirm
+    assert data["rows_pagination"] == {"page": 1, "page_size": 20, "total": 8, "total_pages": 1}
+    assert "pagination" not in response.json()
     assert Lead.objects.count() == 1  # nothing imported yet
     results = {row["row_number"]: row["result"] for row in data["rows"]}
     assert results == {2: "valid", 3: "valid", 4: "invalid", 5: "invalid", 6: "invalid", 7: "invalid",
@@ -79,7 +82,7 @@ def test_csv_import_preview_confirm_and_report(admin_client, admin_user, make_le
 
     batch_id = data["batch_id"]
     invalid = admin_client.get(f"{IMPORT_URL}{batch_id}/", {"result": "invalid"}).json()
-    assert invalid["pagination"]["total"] == 4
+    assert invalid["data"]["rows_pagination"]["total"] == 4
     assert invalid["data"]["rows"][0]["errors"] == [{"field": "customer_name", "message": "This value is required."}]
 
     response = admin_client.post(f"{IMPORT_URL}{batch_id}/confirm/")
@@ -96,6 +99,10 @@ def test_csv_import_preview_confirm_and_report(admin_client, admin_user, make_le
     assert str(lead.next_followup_date) == "2026-12-01"
     assert lead.service.slug == "home-loan"
 
+    completed = admin_client.get(f"{IMPORT_URL}{batch_id}/").json()["data"]
+    assert completed["status"] == "completed"
+    assert completed["summary"]["successful_rows"] == 2 and completed["summary"]["failed_rows"] == 4
+
     assert admin_client.post(f"{IMPORT_URL}{batch_id}/confirm/").status_code == 409
     assert admin_client.post(f"{IMPORT_URL}{batch_id}/cancel/").status_code == 409
 
@@ -108,7 +115,7 @@ def test_missing_required_columns_returns_400_without_batch(admin_client):
     response = admin_client.post(IMPORT_URL, {"file": csv_file("name,phone\nRavi,9876543210\n")}, format="multipart")
     assert response.status_code == 400
     error = response.json()["error"]
-    assert error["code"] == "validation_error"
+    assert error["code"] == "missing_columns"
     assert error["missing_columns"] == ["customer_name", "mobile", "service"]
     assert ImportBatch.objects.count() == 0
 

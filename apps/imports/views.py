@@ -57,18 +57,23 @@ def batch_summary(batch):
         duplicate=Count("id", filter=Q(result=ImportRowResult.DUPLICATE)),
         imported=Count("id", filter=Q(result=ImportRowResult.IMPORTED)),
     )
-    return {
+    summary = {
         "total_rows": counts["total"],
         "valid_rows": counts["valid"],
         "invalid_rows": counts["invalid"],
         "duplicate_rows": counts["duplicate"],
-        "successful_rows": counts["imported"],
-        "failed_rows": counts["invalid"],
     }
+    if batch.status == ImportBatchStatus.COMPLETED:
+        summary["successful_rows"] = counts["imported"]
+        summary["failed_rows"] = counts["invalid"]
+    return summary
 
 
 def batch_response(batch, request, view, response_status=status.HTTP_200_OK, message=None):
-    """Batch details plus one page of rows (filter with ?result=invalid,duplicate&page=N)."""
+    """Batch details plus one page of rows (filter with ?result=invalid,duplicate&page=N).
+
+    The page metadata for `rows` is in data.rows_pagination (frontend contract).
+    """
     rows = batch.rows.order_by("row_number")
     result_filter = [r.strip() for r in (request.query_params.get("result") or "").split(",") if r.strip()]
     if result_filter:
@@ -90,8 +95,9 @@ def batch_response(batch, request, view, response_status=status.HTTP_200_OK, mes
         "summary": batch_summary(batch),
         "missing_columns": [],
         "rows": ImportRowSerializer(page, many=True).data,
+        "rows_pagination": paginator.pagination_meta(),
     }
-    return success(data, message, response_status, pagination=paginator.pagination_meta())
+    return success(data, message, response_status)
 
 
 class ImportUploadView(APIView):
@@ -123,7 +129,7 @@ class ImportUploadView(APIView):
             message = f"The file is missing required column(s): {', '.join(missing)}."
             raise ApiError(
                 message,
-                code="validation_error",
+                code="missing_columns",
                 status_code=status.HTTP_400_BAD_REQUEST,
                 extra={"fields": {"file": [message]}, "missing_columns": missing},
             )
@@ -200,8 +206,8 @@ class ImportConfirmView(APIView):
                 row.result, row.lead = ImportRowResult.IMPORTED, lead
             ImportRow.objects.bulk_update(rows, ["result", "errors", "lead"])
 
-            summary = batch_summary(batch)
             batch.status = ImportBatchStatus.COMPLETED
+            summary = batch_summary(batch)
             batch.imported_at = timezone.now()
             batch.total_rows = summary["total_rows"]
             batch.successful_rows = summary["successful_rows"]

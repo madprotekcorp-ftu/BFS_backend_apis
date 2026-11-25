@@ -1,7 +1,8 @@
 """Seed the 15 service categories (10 loans, 5 insurance).
 
-Names, slugs and descriptions are a starting point: confirm them against the SRS
-and adjust through the Django admin or a follow-up migration.
+Slugs are fixed by the frontend contract. On a fresh database the ids come out
+1-15 in display order. Databases seeded with the earlier draft list are corrected
+by 0003_correct_service_categories.
 """
 
 from django.db import migrations
@@ -10,18 +11,18 @@ SERVICES = [
     ("Personal Loan", "personal-loan", "loan", "Quick funds for personal needs with minimal paperwork."),
     ("Business Loan", "business-loan", "loan", "Finance to start, run or grow your business."),
     ("Home Loan", "home-loan", "loan", "Buy, build or renovate your home with flexible repayment."),
-    ("Loan Against Property", "loan-against-property", "loan", "Unlock the value of your property for larger needs."),
+    ("Plot Loan", "plot-loan", "loan", "Finance to buy a residential plot."),
     ("Car Loan", "car-loan", "loan", "Finance for new and used cars."),
-    ("Two-Wheeler Loan", "two-wheeler-loan", "loan", "Easy finance for bikes and scooters."),
-    ("Gold Loan", "gold-loan", "loan", "Instant funds against your gold jewellery."),
+    ("Commercial Vehicle Loan", "commercial-vehicle-loan", "loan", "Finance for trucks, buses and other commercial vehicles."),
     ("Education Loan", "education-loan", "loan", "Fund studies in India or abroad."),
-    ("Balance Transfer & Top-up", "balance-transfer-top-up", "loan", "Move your loan to a lower rate and top it up."),
-    ("Working Capital / MSME Loan", "working-capital-msme-loan", "loan", "Keep day-to-day operations of your MSME running."),
+    ("Gold Loan", "gold-loan", "loan", "Instant funds against your gold jewellery."),
+    ("MSME Loan", "msme-loan", "loan", "Working capital and term loans for small businesses."),
+    ("Top-up Loan", "top-up-loan", "loan", "Extra funds on top of your existing loan."),
     ("Life Insurance", "life-insurance", "insurance", "Protect your family's financial future."),
-    ("Term Insurance", "term-insurance", "insurance", "High cover at an affordable premium."),
     ("Health Insurance", "health-insurance", "insurance", "Cover for hospital and medical expenses."),
-    ("Motor Insurance", "motor-insurance", "insurance", "Cover for your car or two-wheeler."),
-    ("General Insurance", "general-insurance", "insurance", "Cover for home, shop and other assets."),
+    ("Vehicle Insurance", "vehicle-insurance", "insurance", "Cover for your car, two-wheeler or commercial vehicle."),
+    ("Home Insurance", "home-insurance", "insurance", "Protect your home and belongings."),
+    ("Personal Accident Insurance", "personal-accident-insurance", "insurance", "Financial cover against accidental injury or death."),
 ]
 
 
